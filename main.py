@@ -1,12 +1,37 @@
+from src.config import Config
+from src.scraper import Scraper
+import json
 
-from src import PinterestScraper, PinterestConfig
+def main():
+    # 1. Setup Configuration
+    configs = Config(
+        search_keyword="Cyberpunk Aesthetic", 
+        file_length=20, 
+        image_quality="orig",
+        download=False,
+    )
 
+    # 2. Initialize Scraper
+    pinterest = Scraper(configs)
 
-configs = PinterestConfig(search_keywords="Atatürk", # Search word
-                          file_lengths=200,     # total number of images to download (default = "100")
-                          image_quality="orig", # image quality (default = "orig")
-                          bookmarks="")         # next page data (default= "")
+    # 3. Get Metadata (This fixes your AttributeError)
+    print("Starting crawl...")
+    results = pinterest.get_urls()
 
+    if results:
+        print(f"\nSuccessfully retrieved {len(results)} image links.")
+        # Optional: Print the first result to verify structure
+        print(f"Sample Entry: {results[0]}")
 
-PinterestScraper(configs).download_images()     # download images directly
-print(PinterestScraper(configs).get_urls())     # just bring image links
+        # 4. Download the images using the retrieved list
+        if configs.download:
+            print("Download flag is ENABLED. Starting downloads...")
+            pinterest.download_images(results)
+        else:
+            print("Skipping file download.")
+            
+    else:
+        print("No results found. Check your connection or search term.")
+
+if __name__ == "__main__":
+    main()
