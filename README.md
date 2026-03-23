@@ -1,3 +1,5 @@
+```python -m uvicorn api:app --reload --port 8000```
+
 ## **Pinterest Image Download by Keywords**
 You can download as many images as you want about the searched words.
 
