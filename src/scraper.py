@@ -15,70 +15,78 @@ class Scraper:
         self.seen_ids = set()
 
     async def get_urls_async(self):
-        """
-        Asynchronous version for use in FastAPI/Async environments.
-        Uses background interception to gather Pin metadata.
-        """
-        async with async_pw() as p:
-            browser = await p.chromium.launch(headless=True)
+    # 1. Start Playwright explicitly
+        pw = await async_pw().start()
+        
+        try:
+            # 2. Launch browser
+            browser = await pw.chromium.launch(headless=True)
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             )
             page = await context.new_page()
 
+            self.results_data = []
+            self.seen_ids = set()
+            last_seen_count = 0
+            no_new_data_count = 0
+
             async def handle_response(response):
                 if "BaseSearchResource" in response.url and response.status == 200:
                     try:
                         resp_json = await response.json()
-                        resource_data = resp_json.get("resource_response", {}).get(
-                            "data", []
-                        )
-
-                        items = (
-                            resource_data.get("results", [])
-                            if isinstance(resource_data, dict)
-                            else resource_data
-                        )
-
+                        resource_data = resp_json.get("resource_response", {}).get("data", [])
+                        items = resource_data.get("results", []) if isinstance(resource_data, dict) else resource_data
+                        
                         for pin in items:
                             pin_id = str(pin.get("id"))
-                            img_url = (
-                                pin.get("images", {})
-                                .get(self.config.image_quality, {})
-                                .get("url")
-                            )
-
-                            if pin_id and img_url and pin_id not in self.seen_ids:
+                            if pin_id and pin_id not in self.seen_ids:
                                 self.seen_ids.add(pin_id)
-                                self.results_data.append(
-                                    {
-                                        "id": pin_id,
-                                        "url": img_url,
-                                        "title": pin.get("title", "No Title"),
-                                    }
-                                )
-                    except:
-                        pass
+                                if len(self.seen_ids) > self.config.offset:
+                                    img_url = pin.get("images", {}).get(self.config.image_quality, {}).get("url")
+                                    if img_url:
+                                        self.results_data.append({
+                                            "id": pin_id,
+                                            "url": img_url,
+                                            "title": pin.get("title", "No Title"),
+                                        })
+                    except: pass
 
+            # Register listener
             page.on("response", handle_response)
-            print(f"Browsing (Async): {self.config.search_url}")
-            await page.goto(self.config.search_url)
+            
+            print(f"Browsing: {self.config.search_url}")
+            await page.goto(self.config.search_url, wait_until="networkidle")
 
             target = int(self.config.file_length)
-            timeout_limit = 60
+            timeout_limit = 60 + (self.config.offset // 5)
             start_time = asyncio.get_event_loop().time()
 
-            while (
-                len(self.results_data) < target
-                and (asyncio.get_event_loop().time() - start_time) < timeout_limit
-            ):
+            while len(self.results_data) < target:
+                if (asyncio.get_event_loop().time() - start_time) > timeout_limit:
+                    break
+                
+                if len(self.seen_ids) == last_seen_count:
+                    no_new_data_count += 1
+                else:
+                    no_new_data_count = 0
+                
+                if no_new_data_count > 5:
+                    break
+                    
+                last_seen_count = len(self.seen_ids)
                 await page.mouse.wheel(0, 4000)
-                await asyncio.sleep(2)  # Non-blocking sleep
-                print(f"Captured {len(self.results_data)} unique pins...")
+                await asyncio.sleep(1.5)
+                
+                print(f"Seen: {len(self.seen_ids)} | Collected: {len(self.results_data)}")
 
+            # 3. Cleanup manually
             await browser.close()
-            self._save_to_json()
             return self.results_data[:target]
+
+        finally:
+            # 4. Stop the playwright instance last
+            await pw.stop()
 
     def get_urls(self):
         """

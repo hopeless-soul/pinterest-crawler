@@ -48,6 +48,7 @@ async def root():
 async def scrape_pinterest(
     q: str = Query(..., description="Search keyword"),
     limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0),
     quality: str = Query("orig"),
     download: bool = Query(False),
 ):
@@ -57,6 +58,7 @@ async def scrape_pinterest(
             file_length=limit,
             image_quality=quality,
             download=download,
+            offset=offset,
         )
 
         pinterest = Scraper(configs)
