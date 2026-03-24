@@ -62,7 +62,7 @@ async def scrape_pinterest(
         )
 
         pinterest = Scraper(configs)
-        print(f"--- API Request Received: Searching for '{q}' ---")
+        print(f"--- API Request Received: Searching for '{q}' {limit}:{offset} ---")
 
         # This will now work because the Proactor loop supports subprocesses
         results = await pinterest.get_urls_async()
