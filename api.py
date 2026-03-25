@@ -1,26 +1,22 @@
 import asyncio
 import sys
 
-# 1. Top-level fix (Must be before any other imports)
+# 1. SET POLICY IMMEDIATELY (MUST be before ANY asyncio usage)
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from src.config import Config
 from src.scraper import Scraper
 
-# 2. Context Manager to ensure the loop is correct during startup
-from contextlib import asynccontextmanager
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # This double-checks the loop inside the running worker
-    if sys.platform == "win32":
-        loop = asyncio.get_event_loop()
-        print(f"--- Active Event Loop: {type(loop).__name__} ---")
+    loop = asyncio.get_running_loop()
+    print(f"Event Loop: {type(loop).__name__}")
     yield
 
 
@@ -37,11 +33,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {
-        "status": "online",
-        "loop": type(asyncio.get_event_loop()).__name__,
-        "platform": sys.platform,
-    }
+    return {"status": "online", "platform": sys.platform}
 
 
 @app.get("/scrape")
@@ -60,27 +52,30 @@ async def scrape_pinterest(
             download=download,
             offset=offset,
         )
-
         pinterest = Scraper(configs)
-        print(f"--- API Request Received: Searching for '{q}' {limit}:{offset} ---")
+        print(f"Searching: '{q}' (limit={limit}, offset={offset})")
 
-        # This will now work because the Proactor loop supports subprocesses
         results = await pinterest.get_urls_async()
-
-        if download:
-            pinterest.download_images(results)
-
+        print(f"Found {len(results)} pins")
+        
         return {"success": True, "keyword": q, "count": len(results), "data": results}
-
+        
     except Exception as e:
-        print(f"Internal Error: {str(e)}")
-        # Log the full error to console for debugging
         import traceback
-
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
-    # If running directly via 'python api.py'
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    # 2. DOUBLE-CHECK before running
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    
+    # 3. DISABLE RELOAD on Windows (reload breaks the event loop policy)
+    uvicorn.run(
+        "api:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,  # ← CRITICAL: Disable reload on Windows
+        log_level="info"
+    )
